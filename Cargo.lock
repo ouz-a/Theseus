@@ -980,7 +980,7 @@ dependencies = [
  "log",
  "mod_mgmt",
  "path",
- "shell",
+ "porthole",
  "spawn",
 ]
 
@@ -2385,6 +2385,29 @@ dependencies = [
 [[package]]
 name = "port_io"
 version = "0.2.1"
+
+[[package]]
+name = "porthole"
+version = "0.1.0"
+dependencies = [
+ "core2",
+ "event_types",
+ "font",
+ "hpet",
+ "keycodes_ascii",
+ "log",
+ "memory",
+ "mouse",
+ "mouse_data",
+ "mpmc",
+ "multicore_bringup",
+ "scheduler",
+ "spawn",
+ "spin 0.9.0",
+ "stdio",
+ "task",
+ "zerocopy",
+]
 
 [[package]]
 name = "ppv-lite86"

@@ -619,6 +619,7 @@ impl WindowManager {
 
 /// Initialize the window manager. It returns (keyboard_producer, mouse_producer) for the I/O devices.
 pub fn init() -> Result<(Queue<Event>, Queue<Event>), &'static str> {
+    /* 
     let final_fb: Framebuffer<AlphaPixel> = framebuffer::init()?;
     let (width, height) = final_fb.get_size();
 
@@ -647,6 +648,7 @@ pub fn init() -> Result<(Queue<Event>, Queue<Event>), &'static str> {
     };
     WINDOW_MANAGER.call_once(|| Mutex::new(window_manager));
 
+    */
     // keyinput queue initialization
     let key_consumer: Queue<Event> = Queue::with_capacity(100);
     let key_producer = key_consumer.clone();
@@ -655,10 +657,10 @@ pub fn init() -> Result<(Queue<Event>, Queue<Event>), &'static str> {
     let mouse_consumer: Queue<Event> = Queue::with_capacity(100);
     let mouse_producer = mouse_consumer.clone();
 
-    spawn::new_task_builder(window_manager_loop, (key_consumer, mouse_consumer))
+    /*spawn::new_task_builder(window_manager_loop, (key_consumer, mouse_consumer))
         .name("window_manager_loop".to_string())
         .spawn()?;
-
+    */
     Ok((key_producer, mouse_producer))
 }
 

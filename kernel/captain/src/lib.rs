@@ -141,11 +141,13 @@ pub fn init(
     multiple_heaps::switch_to_multiple_heaps()?;
     info!("Initialized per-core heaps");
 
+
+    // mouse input queue initialization
     // initialize window manager.
-    let (key_producer, mouse_producer) = window_manager::init()?;
+    //let (key_producer, mouse_producer) = window_manager::init()?;
 
     // initialize the rest of our drivers
-    device_manager::init(key_producer, mouse_producer)?;
+    //device_manager::init(key_producer, mouse_producer)?;
     task_fs::init()?;
 
 
