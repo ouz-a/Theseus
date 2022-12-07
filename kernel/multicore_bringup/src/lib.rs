@@ -60,11 +60,11 @@ pub static GRAPHIC_INFO: Mutex<GraphicInfo> = Mutex::new(GraphicInfo::new());
 #[repr(packed)]
 pub struct GraphicInfo {
     /// The visible width of the screen, in pixels.
-    width: u16,
+    pub width: u16,
     /// The visible height of the screen, in pixels.
-    height: u16,
+    pub height: u16,
     /// The physical address of the primary framebuffer memory.
-    physical_address: u32,
+    pub physical_address: u32,
     /// The `mode` that the VGA is currently operating in.
     ///
     /// This is a bitfield that Theseus doesn't currently use.

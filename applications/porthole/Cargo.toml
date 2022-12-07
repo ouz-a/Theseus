@@ -17,6 +17,12 @@ version = "0.4.8"
 [dependencies.memory]
 path = "../../kernel/memory"
 
+[dependencies.memory_structs]
+path = "../../kernel/memory_structs"
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+page_attribute_table = { path = "../../kernel/page_attribute_table" }
+
 [dependencies.multicore_bringup]
 path = "../../kernel/multicore_bringup"
 
@@ -49,6 +55,9 @@ path = "../../libs/keycodes_ascii"
 
 [dependencies.font]
 path = "../../kernel/font"
+
+[dependencies.device_manager]
+path = "../../kernel/device_manager"
 
 [lib]
 crate-type = ["rlib"]
