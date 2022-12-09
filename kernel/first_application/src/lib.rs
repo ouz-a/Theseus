@@ -51,6 +51,7 @@ pub fn start() -> Result<(), &'static str> {
     // Spawn the default shell
     spawn::new_application_task_builder(path, Some(new_app_ns))?
         .name("porthole".to_string())
+        .pin_on_core(0)
         .spawn()?;
 
     Ok(())

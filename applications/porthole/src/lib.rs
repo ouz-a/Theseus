@@ -1,6 +1,5 @@
 #![no_std]
 
-#[macro_use]
 extern crate alloc;
 extern crate hpet;
 extern crate mouse;
@@ -12,12 +11,8 @@ extern crate task;
 extern crate memory;
 extern crate device_manager;
 use alloc::sync::{Arc, Weak};
-use core::mem;
 use log::{debug,info};
 use spin::{Mutex, MutexGuard, Once};
-use stdio::{
-    KeyEventQueue, KeyEventQueueReader, KeyEventQueueWriter, Stdio, StdioReader, StdioWriter,
-};
 
 use event_types::{Event, MousePositionEvent};
 use keycodes_ascii::{KeyAction, KeyEvent, Keycode};
@@ -25,10 +20,9 @@ use mpmc::Queue;
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use core::time::Duration;
 use font::{CHARACTER_HEIGHT, CHARACTER_WIDTH};
 use hpet::get_hpet;
-use memory::{BorrowedSliceMappedPages, Frame,PteFlags,PteFlagsArch, Mutable, PhysicalAddress};
+use memory::{BorrowedSliceMappedPages, PteFlags,PteFlagsArch, Mutable, PhysicalAddress};
 use mouse_data::MouseEvent;
 use task::{ExitValue, JoinableTaskRef, KillReason};
 pub static WINDOW_MANAGER: Once<Mutex<WindowManager>> = Once::new();
@@ -52,6 +46,23 @@ static MOUSE_POINTER_IMAGE: [[u32; 18]; 11] = {
         [T, T, T, T, T, T, T, T, T, T, B, T, T, T, T, T, T, T],
     ]
 };
+
+pub struct App{
+    window: Arc<Mutex<Window>>,
+    text: TextDisplay,
+}
+
+impl App {
+    pub fn new(window: Arc<Mutex<Window>>, text: TextDisplay) -> Self {
+         Self { window, text } 
+    }
+    pub fn draw(&mut self){
+       self.window.lock().draw_rectangle(0x111FFF);
+       self.text.print_string("slie", &mut self.window.lock()); 
+    }
+   
+}
+
 pub struct TextDisplay {
     width: usize,
     height: usize,
@@ -60,7 +71,90 @@ pub struct TextDisplay {
     text: String,
     fg_color: u32,
     bg_color: u32,
-    cache: String,
+}
+
+impl TextDisplay {
+    pub fn new(width: usize, height: usize, next_col: usize, next_line: usize, text: String, fg_color: u32, bg_color: u32) -> Self { Self { width, height, next_col, next_line, text, fg_color, bg_color } }
+
+    pub fn print_string(
+        &mut self,
+        slice: &str,
+        window: &mut MutexGuard<Window>
+    ) {
+        let rect = window.rect;
+        let buffer_width = rect.width / CHARACTER_WIDTH;
+        let buffer_height = rect.height / CHARACTER_HEIGHT;
+        let (x, y) = (rect.x, rect.y);
+
+        let some_slice = slice.as_bytes();
+
+        self.print_ascii_character( some_slice,window);
+    }
+
+    // TODO: Try to simplify this
+    pub fn print_ascii_character(
+        &mut self,
+        slice:&[u8],
+        window: &mut MutexGuard<Window>
+    ) {
+        let rect = window.rect;
+        let relative_x = rect.x;
+        let relative_y = rect.y;
+        let start_x = relative_x + (self.next_col as isize * CHARACTER_WIDTH as isize);
+        let start_y = relative_y + (self.next_line as isize * CHARACTER_HEIGHT as isize);
+
+        let buffer_width = rect.width;
+        let buffer_height = rect.height;
+
+        let off_set_x = 0;
+        let off_set_y = 0;
+
+        let mut j = off_set_x;
+        let mut i = off_set_y;
+        let mut z = 0;
+        let mut index_j = j;
+        loop {
+            let x = start_x + j as isize;
+            let y = start_y + i as isize;
+            if j % CHARACTER_WIDTH == 0 {
+                    index_j = 0;
+            }
+            let color = if index_j >= 1 {
+                let index = index_j - 1;
+                let char_font = font::FONT_BASIC[slice[z] as usize][i];
+                index_j +=1;
+                if self.get_bit(char_font, index) != 0 {
+                    self.fg_color
+                } else {
+                    self.bg_color
+                }
+            } else {
+                index_j +=1;
+                self.bg_color
+            };
+            window.draw_relative(x, y, color);
+
+            j += 1;
+            if j == CHARACTER_WIDTH || j % CHARACTER_WIDTH == 0 ||start_x + j as isize == buffer_width as isize {
+                if slice.len() >= 1 && z < slice.len() - 1{
+                    z +=1;
+                }
+
+                if j >= CHARACTER_WIDTH * slice.len() && j % (CHARACTER_WIDTH * slice.len()) == 0 {
+                    i+=1;
+                    z=0;
+                    j = off_set_x;
+                }
+
+                if i == CHARACTER_HEIGHT || start_y + i as isize == buffer_height as isize {
+                    break;
+                }
+            }
+        }
+    }
+    fn get_bit(&self, char_font: u8, i: usize) -> u8 {
+        char_font & (0x80 >> i)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -155,7 +249,7 @@ impl FrameBuffer {
 
             #[cfg(target_arch = "x86_64")] {
                 let use_pat = page_attribute_table::init().is_ok();
-                if use_pat{
+                if use_pat {
                     flags = flags.pat_index(
                         page_attribute_table::MemoryCachingType::WriteCombining.pat_slot_index()
                     );
@@ -261,6 +355,7 @@ pub fn main(_args: Vec<String>) -> isize {
 
     let _task_ref = match spawn::new_task_builder(port_loop, (mouse_consumer,key_consumer))
         .name("port_loop".to_string())
+        .pin_on_core(0)
         .spawn()
     {
         Ok(task_ref) => task_ref,
@@ -270,7 +365,7 @@ pub fn main(_args: Vec<String>) -> isize {
             return -1;
         }
     };
-    // block this task, because it never needs to actually run again
+
     task::get_my_current_task().unwrap().block().unwrap();
     scheduler::schedule();
 
@@ -523,124 +618,13 @@ impl Window {
         self.frame_buffer = FrameBuffer::new(self.rect.width, self.rect.height, None).unwrap();
     }
 
-    pub fn print_string(
-        &mut self,
-        rect: &Rect,
-        slice: &str,
-        fg_color: u32,
-        bg_color: u32,
-        column: usize,
-        line: usize,
-    ) {
-        let buffer_width = rect.width / CHARACTER_WIDTH;
-        let buffer_height = rect.height / CHARACTER_HEIGHT;
-        let (x, y) = (rect.x, rect.y);
-
-        let mut curr_line = line;
-        let mut curr_column = column;
-
-        let some_slice = slice.as_bytes();
-
-        self.print_ascii_character(96, fg_color, bg_color, &rect, column, line, some_slice);
-        /* 
-        for byte in slice.bytes() {
-            if byte == b'\n' {
-                curr_column = column;
-                curr_line += 1;
-
-                if curr_line == buffer_height {
-                    break;
-                }
-            } else {
-                if curr_column == buffer_width {
-                    curr_column = 0;
-                    curr_line += 1;
-
-                    if curr_line == buffer_height {
-                        break;
-                    }
-                }
-                self.print_ascii_character(byte, fg_color, bg_color, &rect, curr_column, curr_line,some_slice);
-                curr_column += 1;
-            }
-        }
-        */
-    }
-
-    pub fn print_ascii_character(
-        &mut self,
-        character: u8,
-        fg_color: u32,
-        bg_color: u32,
-        rect: &Rect,
-        column: usize,
-        line: usize,
-        slice:&[u8],
-    ) {
-        let relative_x = rect.x + self.rect.x;
-        let relative_y = rect.y + self.rect.y;
-        let start_x = relative_x + (column as isize * CHARACTER_WIDTH as isize);
-        let start_y = relative_y + (line as isize * CHARACTER_HEIGHT as isize);
-
-        let buffer_width = self.frame_buffer.width;
-        let buffer_height = self.frame_buffer.height;
-
-        let off_set_x = 0;
-        let off_set_y = 0;
-
-        let mut j = off_set_x;
-        let mut i = off_set_y;
-        let mut z = 0;
-        let mut index_j = j;
-        loop {
-            let x = start_x + j as isize;
-            let y = start_y + i as isize;
-            if j % CHARACTER_WIDTH == 0 {
-                    index_j = 0;
-            }
-            let color = if index_j >= 1 {
-                let index = index_j - 1;
-                let char_font = font::FONT_BASIC[slice[z] as usize][i];
-                index_j +=1;
-                if self.get_bit(char_font, index) != 0 {
-                    fg_color
-                } else {
-                    bg_color
-                }
-            } else {
-                index_j +=1;
-                bg_color
-            };
-            self.draw_relative(x, y, color);
-
-            j += 1;
-            if j == CHARACTER_WIDTH || j % CHARACTER_WIDTH == 0 ||start_x + j as isize == buffer_width as isize {
-                if slice.len() >= 1 && z < slice.len() - 1{
-                    z +=1;
-                }
-
-                if j >= CHARACTER_WIDTH * slice.len() && j % (CHARACTER_WIDTH * slice.len()) == 0 {
-                    i+=1;
-                    z=0;
-                    j = off_set_x;
-                }
-
-                if i == CHARACTER_HEIGHT || start_y + i as isize == buffer_height as isize {
-                    break;
-                }
-            }
-        }
-    }
-    fn get_bit(&self, char_font: u8, i: usize) -> u8 {
-        char_font & (0x80 >> i)
-    }
 }
 
 fn port_loop(    (key_consumer, mouse_consumer): (Queue<Event>, Queue<Event>)) -> Result<(), &'static str> {
     let window_manager = WINDOW_MANAGER.get().unwrap();
-    //let window = WindowManager::new_window(&Rect::new(100, 100, 100, 100));
-    // TODO: There is a bug which causes things to render badly it's probably caused by relative rendering investigate it
-    let window_2 = WindowManager::new_window(&Rect::new(100,200, 0, 0));
+    let window_2 = WindowManager::new_window(&Rect::new(400,400, 0, 0));
+    let text = TextDisplay { width: 400, height: 400, next_col: 1, next_line: 1, text: "asdasd".to_string(), fg_color: 0xFFFFFF, bg_color: 0x0F0FFF };
+    let mut app = App::new(window_2, text);
     let hpet = get_hpet();
     let mut start = hpet
         .as_ref()
@@ -648,9 +632,6 @@ fn port_loop(    (key_consumer, mouse_consumer): (Queue<Event>, Queue<Event>)) -
         .get_counter();
     let hpet_freq = hpet.as_ref().ok_or("ss")?.counter_period_femtoseconds() as u64;
 
-    let mut x = 0;
-    let mut inc = true;
-    let mut update = true;
     loop {
         let mut end = hpet
             .as_ref()
@@ -664,7 +645,6 @@ fn port_loop(    (key_consumer, mouse_consumer): (Queue<Event>, Queue<Event>)) -
                 None
             });
 
-
         if let Some(event) = event_opt {
             match event {
                 Event::MouseMovementEvent(ref mouse_event) => {
@@ -674,8 +654,6 @@ fn port_loop(    (key_consumer, mouse_consumer): (Queue<Event>, Queue<Event>)) -
                     while let Some(next_event) = mouse_consumer.pop() {
                         match next_event {
                             Event::MouseMovementEvent(ref next_mouse_event) => {
-                                //log::info!("next mouse event is {:?}",next_mouse_event);
-                                //log::info!("EE");
                                 if next_mouse_event.movement.scroll_movement
                                     == mouse_event.movement.scroll_movement
                                     && next_mouse_event.buttons.left()
@@ -704,42 +682,13 @@ fn port_loop(    (key_consumer, mouse_consumer): (Queue<Event>, Queue<Event>)) -
                 _ => (),
             }
         }
-        //virt_buffer.draw_rectangle(&window.mouse);
 
-        if update {
-            //window.lock().set_position(x, 100);
-            window_2.lock().draw_rectangle(0x4a4a4a);
-            //window.lock().draw_rectangle(0x987454);
-        }
-        if diff >= 160 {
-            update = false;
-            window_2.lock().print_string(
-                &Rect::new(100, 200, 0, 0),
-                "He",
-                0x123456,
-                0xFFF111,
-                2,
-                2,
-            );
-            //window_2.lock().draw_absolute(0, 0, 0xFFFFFF);
+        if diff >= 0 {
+            app.draw();
             window_manager.lock().update();
             window_manager.lock().render();
 
             start = hpet.as_ref().unwrap().get_counter();
-            if x == 500 {
-                inc = false;
-            }
-
-            if inc {
-                x += 1;
-            }
-            if x == 0 {
-                inc = true;
-            }
-            if !inc {
-                x -= 1;
-            }
-            update = true;
         }
     }
     Ok(())
