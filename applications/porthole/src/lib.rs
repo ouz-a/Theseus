@@ -485,6 +485,7 @@ impl WindowManager {
             match self.mouse_holding {
                 Holding::Background => todo!(),
                 Holding::Nothing => {
+                    // This costs nothing
                     let rendering_o = self.window_rendering_order.clone();
                     for &i in rendering_o.iter().rev() {
                         let window = &mut self.windows[i];
