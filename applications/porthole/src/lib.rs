@@ -453,28 +453,37 @@ impl WindowManager {
         self.draw_mouse();
     }
 
+    // TODO: Remove magic numbers
     fn update_mouse_position(&mut self, x: isize, y: isize) {
         let mut new_pos_x = self.mouse.x + x;
         let mut new_pos_y = self.mouse.y - y;
 
+        /* 
         // handle left
         if (new_pos_x + (self.mouse.width as isize / 2)) < 0 {
             new_pos_x = self.mouse.x;
         }
+        */
+        if new_pos_x < 0 {
+            new_pos_x = 0;
+        }
+  
         // handle right
-        if new_pos_x + (self.mouse.width as isize / 2) > self.v_framebuffer.width as isize {
-            new_pos_x = self.mouse.x;
+        if new_pos_x > (self.v_framebuffer.width ) as isize  -3 {
+            log::info!("what");
+            new_pos_x = self.v_framebuffer.width as isize - 3;
         }
 
         // handle top
         if new_pos_y < 0 {
-            new_pos_y = self.mouse.y;
+            new_pos_y = 0;
         }
 
         // handle bottom
-        if new_pos_y + (self.mouse.height as isize / 2) > self.v_framebuffer.height as isize {
-            new_pos_y = self.mouse.y;
+        if new_pos_y > self.v_framebuffer.height as isize -3 {
+            new_pos_y = self.v_framebuffer.height as isize -3;
         }
+        
 
         self.mouse.x = new_pos_x;
         self.mouse.y = new_pos_y;
@@ -708,14 +717,15 @@ fn port_loop(
                     }
                     if x != 0 || y != 0 {
                         window_manager.lock().update_mouse_position(x, y);
+                        window_manager.lock().drag_windows(x, y, &mouse_event);
                     }
-                    window_manager.lock().drag_windows(x, y, &mouse_event);
+
                 }
                 _ => (),
             }
         }
 
-        if diff >= 1 {
+        if diff >= 0 {
             window_3.lock().draw_rectangle(0x194888);
             app.draw();
             window_manager.lock().update();
