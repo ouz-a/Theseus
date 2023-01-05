@@ -696,22 +696,22 @@ impl WindowManager {
 
                     //handle left
                     if (new_pos.x + (window_rect.width as i32 - 20)) < 0 {
-                        new_pos.x = window_rect.x as i32;
+                        new_pos.x = -(window_rect.width as i32  - 20);
                     }
 
                     //handle right
                     if (new_pos.x + 20) > self.v_framebuffer.width as i32 {
-                        new_pos.x = window_rect.x as i32;
+                        new_pos.x = SCREEN_WIDTH as i32  - 20
                     }
 
                     //handle top
                     if new_pos.y < 0 {
-                        new_pos.y = window_rect.y as i32;
+                        new_pos.y = 0
                     }
 
                     // handle bottom
                     if new_pos.y + 20 > self.v_framebuffer.height as i32 {
-                        new_pos.y = window_rect.y as i32;
+                        new_pos.y = (SCREEN_HEIGHT - 20) as i32;
                     }
 
                     window.upgrade().unwrap().lock().set_screen_pos(&new_pos);
