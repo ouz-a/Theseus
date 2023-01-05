@@ -536,6 +536,7 @@ pub fn main(_args: Vec<String>) -> isize {
 
     let _task_ref = match spawn::new_task_builder(port_loop, (mouse_consumer, key_consumer))
         .name("port_loop".to_string())
+        .pin_on_core(0)
         .spawn()
     {
         Ok(task_ref) => task_ref,
@@ -959,6 +960,8 @@ fn port_loop(
         .ok_or("couldn't get HPET timer")?
         .get_counter();
     let hpet_freq = hpet.as_ref().ok_or("ss")?.counter_period_femtoseconds() as u64;
+    let mut counter = 0;
+    let mut total_time =0;
 
     loop {
         let end = hpet
@@ -1021,6 +1024,14 @@ fn port_loop(
             window_3.lock().draw_rectangle(DEFAULT_WINDOW_COLOR);
             window_manager.lock().update();
             window_manager.lock().render();
+            if counter == 1000{
+                log::info!("time {}",total_time/counter);
+                counter =0;
+                total_time =0;
+            }
+            counter +=1;
+            total_time += diff;
+
 
             start = hpet.as_ref().unwrap().get_counter();
         }
