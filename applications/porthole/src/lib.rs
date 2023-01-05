@@ -398,6 +398,7 @@ impl VirtualFrameBuffer {
 pub struct PhysicalFrameBuffer {
     width: usize,
     height: usize,
+    stride: usize,
     buffer: BorrowedSliceMappedPages<u32, Mutable>,
 }
 impl PhysicalFrameBuffer {
@@ -410,10 +411,13 @@ impl PhysicalFrameBuffer {
             PhysicalAddress::new(graphic_info.physical_address() as usize).ok_or("Invalid address");
         let buffer_width = graphic_info.width() as usize;
         let buffer_height = graphic_info.height() as usize;
+        // We are assuming a pixel is 4 bytes big
+        let stride = graphic_info.bytes_per_scanline() / 4;
 
         let framebuffer = PhysicalFrameBuffer::new(
             buffer_width,
             buffer_height,
+            stride as usize,
             vesa_display_phys_start.unwrap(),
         )?;
         Ok(framebuffer)
@@ -422,6 +426,7 @@ impl PhysicalFrameBuffer {
     pub fn new(
         width: usize,
         height: usize,
+        stride: usize,
         physical_address: PhysicalAddress,
     ) -> Result<PhysicalFrameBuffer, &'static str> {
         let kernel_mmi_ref =
@@ -463,6 +468,7 @@ impl PhysicalFrameBuffer {
         Ok(PhysicalFrameBuffer {
             width,
             height,
+            stride,
             buffer: mapped_framebuffer
                 .into_borrowed_slice_mut(0, width * height)
                 .map_err(|(_mp, s)| s)?,
