@@ -402,7 +402,7 @@ pub struct PhysicalFrameBuffer {
 }
 impl PhysicalFrameBuffer {
     fn init_front_buffer() -> Result<PhysicalFrameBuffer, &'static str> {
-        let graphic_info = multicore_bringup::GRAPHIC_INFO.lock();
+        let graphic_info = multicore_bringup::get_graphic_info().unwrap();
         if graphic_info.physical_address() == 0 {
             return Err("wrong physical address for porthole");
         }

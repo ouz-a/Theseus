@@ -158,7 +158,7 @@ pub fn init(
     let (key_producer, mouse_producer) = window_manager::init()?;
 
     // initialize the rest of our drivers
-    device_manager::init(key_producer, mouse_producer)?;
+//    device_manager::init(key_producer, mouse_producer)?;
     task_fs::init()?;
 
 
