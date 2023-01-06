@@ -11,7 +11,7 @@ extern crate scheduler;
 extern crate spin;
 extern crate task;
 use core::marker::PhantomData;
-use core::ops::Add;
+use core::ops::{Add, Sub};
 use core::slice::IterMut;
 
 use alloc::format;
@@ -96,7 +96,17 @@ pub fn display_window_title(window: &mut Window, fg_color: Color, bg_color: Colo
         let slice = title.as_str();
         let border = window.title_border();
         let title_pos = window.title_pos(&slice.len());
-        print_string(window, border.width,border.height, &title_pos, slice, fg_color, bg_color, 0, 0);
+        print_string(
+            window,
+            border.width,
+            border.height,
+            &title_pos,
+            slice,
+            fg_color,
+            bg_color,
+            0,
+            0,
+        );
     }
 }
 
@@ -229,12 +239,13 @@ impl RelativePos {
         Self { x, y }
     }
 
-    pub fn to_1d_pos(&self,target_stride: u32) -> usize{
+    pub fn to_1d_pos(&self, target_stride: u32) -> usize {
         ((target_stride * self.y) + self.x) as usize
     }
 }
 
-/// Position that is relative to the screen 
+/// Position that is relative to the screen
+#[derive(Debug)]
 pub struct ScreenPos {
     pub x: i32,
     pub y: i32,
@@ -245,7 +256,7 @@ impl ScreenPos {
         Self { x, y }
     }
 
-    pub fn to_1d_pos(&self) -> usize{
+    pub fn to_1d_pos(&self) -> usize {
         ((SCREEN_WIDTH as i32 * self.y) + self.x) as usize
     }
 }
@@ -268,6 +279,17 @@ impl Add<Rect> for ScreenPos {
         Self {
             x: self.x + other.x as i32,
             y: self.y + other.y as i32,
+        }
+    }
+}
+
+impl Sub<Rect> for ScreenPos {
+    type Output = Self;
+
+    fn sub(self, other: Rect) -> Self{
+        Self{
+            x: self.x - other.x as i32,
+            y: self.y - other.y as i32,
         }
     }
 }
@@ -364,7 +386,8 @@ impl VirtualFrameBuffer {
         let window_stride = window.frame_buffer.width as usize;
 
         // FIXME: Handle errors with error types
-        let screen_rows = FramebufferRowChunks::new(&mut self.buffer, window_screen, self.width).unwrap();
+        let screen_rows =
+            FramebufferRowChunks::new(&mut self.buffer, window_screen, self.width).unwrap();
         // To handle rendering when the window is partially outside the screen we use relative version of visible rect
         let relative_visible_rect = window.relative_visible_rect();
 
@@ -377,7 +400,6 @@ impl VirtualFrameBuffer {
         for (screen_row, window_row) in screen_rows.zip(window_rows) {
             screen_row.copy_from_slice(window_row);
         }
-
     }
 
     fn draw_unchecked(&mut self, x: isize, y: isize, col: Color) {
@@ -509,7 +531,8 @@ impl<'a, T: 'a> FramebufferRowChunks<'a, T> {
 
     fn calculate_next_row(&mut self) {
         self.row_index_beg = (self.stride * self.current_column) + self.rect.x as usize;
-        self.row_index_end = (self.stride * self.current_column) + self.rect.x_plus_width() as usize;
+        self.row_index_end =
+            (self.stride * self.current_column) + self.rect.x_plus_width() as usize;
     }
 }
 
@@ -568,6 +591,20 @@ pub enum Holding {
     Window(usize),
 }
 
+impl Holding {
+    fn nothing(&self) -> bool {
+        *self == Holding::Nothing
+    }
+
+    fn backgrond(&self) -> bool {
+        *self == Holding::Background
+    }
+
+    fn window(&self) -> bool {
+        !self.nothing() && !self.backgrond()
+    }
+}
+
 pub struct WindowManager {
     windows: Vec<Weak<Mutex<Window>>>,
     window_rendering_order: Vec<usize>,
@@ -613,8 +650,9 @@ impl WindowManager {
 
     fn draw_windows(&mut self) {
         for order in self.window_rendering_order.iter() {
-            self.v_framebuffer
-                .copy_windows_into_main_vbuffer(&mut self.windows[*order].upgrade().unwrap().lock());
+            self.v_framebuffer.copy_windows_into_main_vbuffer(
+                &mut self.windows[*order].upgrade().unwrap().lock(),
+            );
         }
         for window in self.windows.iter() {
             window.upgrade().unwrap().lock().blank();
@@ -646,8 +684,7 @@ impl WindowManager {
         self.draw_mouse();
     }
 
-    // TODO: Remove magic numbers
-    fn update_mouse_position(&mut self, screen_pos: ScreenPos) {
+    fn next_mouse_pos(&self, screen_pos: ScreenPos) -> ScreenPos{
         let mut new_pos = screen_pos + self.mouse;
 
         // handle left
@@ -659,6 +696,12 @@ impl WindowManager {
         new_pos.y = core::cmp::max(new_pos.y, 0);
         // handle bottom
         new_pos.y = core::cmp::min(new_pos.y, self.v_framebuffer.height as i32 - 3);
+        new_pos
+    }
+
+    // TODO: Remove magic numbers
+    fn update_mouse_position(&mut self, screen_pos: ScreenPos) {
+        let new_pos = self.next_mouse_pos(screen_pos);
 
         self.set_mouse_pos(&new_pos);
     }
@@ -666,7 +709,7 @@ impl WindowManager {
     fn drag_windows(&mut self, screen_pos: ScreenPos, mouse_event: &MouseEvent) {
         if mouse_event.buttons.left() {
             match self.mouse_holding {
-                Holding::Background => todo!(),
+                Holding::Background => {}
                 Holding::Nothing => {
                     let rendering_o = self.window_rendering_order.clone();
                     for &i in rendering_o.iter().rev() {
@@ -675,7 +718,7 @@ impl WindowManager {
                             .upgrade()
                             .unwrap()
                             .lock()
-                            .dynamic_title_border_pos()
+                            .rect
                             .detect_collision(&self.mouse)
                         {
                             if i != *self.window_rendering_order.last().unwrap() {
@@ -687,11 +730,22 @@ impl WindowManager {
                                 self.window_rendering_order.remove(wind_index);
                                 self.window_rendering_order.push(i);
                             }
-                            // FIXME: Don't hold a window if its behind another window
-                            self.mouse_holding = Holding::Window(i);
+                            if window
+                                .upgrade()
+                                .unwrap()
+                                .lock()
+                                .dynamic_title_border_pos()
+                                .detect_collision(&self.mouse)
+                            {
+                                self.mouse_holding = Holding::Window(i);
+                            }
                             break;
                         }
                         self.mouse_holding = Holding::Nothing;
+                    }
+                    // If couldn't hold onto anything we must have hold onto background
+                    if self.mouse_holding.nothing() {
+                        self.mouse_holding = Holding::Background;
                     }
                 }
                 // TODO: Fix the bug that allows you to move the window while mouse position is still
@@ -702,12 +756,12 @@ impl WindowManager {
 
                     //handle left
                     if (new_pos.x + (window_rect.width as i32 - 20)) < 0 {
-                        new_pos.x = -(window_rect.width as i32  - 20);
+                        new_pos.x = -(window_rect.width as i32 - 20);
                     }
 
                     //handle right
                     if (new_pos.x + 20) > self.v_framebuffer.width as i32 {
-                        new_pos.x = SCREEN_WIDTH as i32  - 20
+                        new_pos.x = SCREEN_WIDTH as i32 - 20
                     }
 
                     //handle top
@@ -721,6 +775,9 @@ impl WindowManager {
                     }
 
                     window.upgrade().unwrap().lock().set_screen_pos(&new_pos);
+                    log::info!("mouse pos is {:?}",self.mouse);
+                    let window_rect = window.upgrade().unwrap().lock().rect;
+                    log::info!("window rect is {:?}",&window_rect);
                 }
             }
         // FIXME: Resizing is broken if windows are on top of each other
@@ -967,7 +1024,7 @@ fn port_loop(
         .get_counter();
     let hpet_freq = hpet.as_ref().ok_or("ss")?.counter_period_femtoseconds() as u64;
     let mut counter = 0;
-    let mut total_time =0;
+    let mut total_time = 0;
 
     loop {
         let end = hpet
@@ -1016,10 +1073,10 @@ fn port_loop(
                         window_manager
                             .lock()
                             .update_mouse_position(ScreenPos::new(x as i32, -(y as i32)));
-                        window_manager
-                            .lock()
-                            .drag_windows(ScreenPos::new(x as i32, -(y as i32)), &mouse_event);
                     }
+                    window_manager
+                        .lock()
+                        .drag_windows(ScreenPos::new(x as i32, -(y as i32)), &mouse_event);
                 }
                 _ => (),
             }
@@ -1030,14 +1087,13 @@ fn port_loop(
             window_3.lock().draw_rectangle(DEFAULT_WINDOW_COLOR);
             window_manager.lock().update();
             window_manager.lock().render();
-            if counter == 1000{
-                log::info!("time {}",total_time/counter);
-                counter =0;
-                total_time =0;
+            if counter == 1000 {
+                //log::info!("time {}", total_time / counter);
+                counter = 0;
+                total_time = 0;
             }
-            counter +=1;
+            counter += 1;
             total_time += diff;
-
 
             start = hpet.as_ref().unwrap().get_counter();
         }
