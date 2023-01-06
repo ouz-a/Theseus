@@ -11,8 +11,7 @@ extern crate scheduler;
 extern crate spin;
 extern crate task;
 use core::marker::PhantomData;
-use core::ops::{Add, Sub};
-use core::slice::IterMut;
+use core::ops::Add;
 
 use alloc::format;
 use alloc::sync::{Arc, Weak};
@@ -20,7 +19,6 @@ use log::{debug, info};
 use spin::{Mutex, MutexGuard, Once};
 
 use event_types::Event;
-use keycodes_ascii::{KeyAction, KeyEvent, Keycode};
 use mpmc::Queue;
 
 use alloc::string::{String, ToString};
@@ -61,16 +59,15 @@ static MOUSE_POINTER_IMAGE: [[u32; 18]; 11] = {
 };
 pub struct App {
     window: Arc<Mutex<Window>>,
-    text: TextDisplay,
+    text: TextDisplayInfo,
 }
 
 impl App {
-    pub fn new(window: Arc<Mutex<Window>>, text: TextDisplay) -> Self {
+    pub fn new(window: Arc<Mutex<Window>>, text: TextDisplayInfo) -> Self {
         Self { window, text }
     }
     pub fn draw(&mut self) {
         self.window.lock().draw_rectangle(DEFAULT_WINDOW_COLOR);
-        let rect = self.window.lock().rect;
         display_window_title(
             &mut self.window.lock(),
             DEFAULT_TEXT_COLOR,
@@ -78,14 +75,14 @@ impl App {
         );
         print_string(
             &mut self.window.lock(),
-            rect.width,
-            rect.height,
-            &RelativePos::new(0, 0),
+            self.text.width,
+            self.text.height,
+            &self.text.pos,
             &self.text.text,
-            DEFAULT_TEXT_COLOR,
-            DEFAULT_WINDOW_COLOR,
-            0,
-            1,
+            self.text.fg_color,
+            self.text.bg_color,
+            self.text.next_col,
+            self.text.next_line,
         )
     }
 }
@@ -179,10 +176,10 @@ fn get_bit(char_font: u8, i: usize) -> u8 {
     char_font & (0x80 >> i)
 }
 
-// TODO: Implement proper `types` for width height etc
-pub struct TextDisplay {
+pub struct TextDisplayInfo {
     width: usize,
     height: usize,
+    pos: RelativePos,
     next_col: usize,
     next_line: usize,
     text: String,
@@ -190,10 +187,11 @@ pub struct TextDisplay {
     bg_color: Color,
 }
 
-impl TextDisplay {
+impl TextDisplayInfo {
     pub fn new(
         width: usize,
         height: usize,
+        pos: RelativePos,
         next_col: usize,
         next_line: usize,
         text: String,
@@ -203,6 +201,7 @@ impl TextDisplay {
         Self {
             width,
             height,
+            pos,
             next_col,
             next_line,
             text,
@@ -245,7 +244,6 @@ impl RelativePos {
 }
 
 /// Position that is relative to the screen
-#[derive(Debug)]
 pub struct ScreenPos {
     pub x: i32,
     pub y: i32,
@@ -283,17 +281,6 @@ impl Add<Rect> for ScreenPos {
     }
 }
 
-impl Sub<Rect> for ScreenPos {
-    type Output = Self;
-
-    fn sub(self, other: Rect) -> Self {
-        Self {
-            x: self.x - other.x as i32,
-            y: self.y - other.y as i32,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct Rect {
     pub width: usize,
@@ -321,15 +308,10 @@ impl Rect {
     }
 
     fn detect_collision(&self, other: &Rect) -> bool {
-        if self.x < other.x_plus_width()
+        self.x < other.x_plus_width()
             && self.x_plus_width() > other.x
             && self.y < other.y_plus_height()
             && self.y_plus_height() > other.y
-        {
-            true
-        } else {
-            false
-        }
     }
 
     /// Creates a new `Rect` from visible parts of itself.
@@ -604,7 +586,6 @@ impl Holding {
         !self.nothing() && !self.backgrond()
     }
 }
-
 pub struct WindowManager {
     windows: Vec<Weak<Mutex<Window>>>,
     window_rendering_order: Vec<usize>,
@@ -644,7 +625,7 @@ impl WindowManager {
             title,
         );
         let arc_window = Arc::new(Mutex::new(window));
-        manager.windows.push(Arc::downgrade(&arc_window.clone()));
+        manager.windows.push(Arc::downgrade(&arc_window));
         arc_window
     }
 
@@ -684,7 +665,8 @@ impl WindowManager {
         self.draw_mouse();
     }
 
-    fn next_mouse_pos(&self, screen_pos: ScreenPos) -> ScreenPos {
+    // TODO: Remove magic numbers
+    fn update_mouse_position(&mut self, screen_pos: ScreenPos) {
         let mut new_pos = screen_pos + self.mouse;
 
         // handle left
@@ -696,12 +678,6 @@ impl WindowManager {
         new_pos.y = core::cmp::max(new_pos.y, 0);
         // handle bottom
         new_pos.y = core::cmp::min(new_pos.y, self.v_framebuffer.height as i32 - 3);
-        new_pos
-    }
-
-    // TODO: Remove magic numbers
-    fn update_mouse_position(&mut self, screen_pos: ScreenPos) {
-        let new_pos = self.next_mouse_pos(screen_pos);
 
         self.set_mouse_pos(&new_pos);
     }
@@ -1004,14 +980,15 @@ fn port_loop(
     let window_manager = WINDOW_MANAGER.get().unwrap();
     let window_3 = WindowManager::new_window(&Rect::new(400, 200, 30, 100), None);
     let window_2 = WindowManager::new_window(&Rect::new(400, 400, 500, 20), Some(format!("Basic")));
-    let text = TextDisplay {
+    let text = TextDisplayInfo {
         width: 400,
         height: 400,
+        pos: RelativePos::new(0, 0),
         next_col: 1,
         next_line: 1,
         text: "Hello World".to_string(),
-        fg_color: 0xFFFFFF,
-        bg_color: 0x0F0FFF,
+        fg_color: DEFAULT_TEXT_COLOR,
+        bg_color: DEFAULT_BORDER_COLOR,
     };
     let mut app = App::new(window_2, text);
     let hpet = get_hpet();
@@ -1020,8 +997,6 @@ fn port_loop(
         .ok_or("couldn't get HPET timer")?
         .get_counter();
     let hpet_freq = hpet.as_ref().ok_or("ss")?.counter_period_femtoseconds() as u64;
-    let mut counter = 0;
-    let mut total_time = 0;
 
     loop {
         let end = hpet
@@ -1070,27 +1045,20 @@ fn port_loop(
                         window_manager
                             .lock()
                             .update_mouse_position(ScreenPos::new(x as i32, -(y as i32)));
+                        window_manager
+                            .lock()
+                            .drag_windows(ScreenPos::new(x as i32, -(y as i32)), &mouse_event);
                     }
-                    window_manager
-                        .lock()
-                        .drag_windows(ScreenPos::new(x as i32, -(y as i32)), &mouse_event);
                 }
                 _ => (),
             }
         }
 
-        if diff >= 0 {
+        if diff > 0 {
             app.draw();
             window_3.lock().draw_rectangle(DEFAULT_WINDOW_COLOR);
             window_manager.lock().update();
             window_manager.lock().render();
-            if counter == 1000 {
-                //log::info!("time {}", total_time / counter);
-                counter = 0;
-                total_time = 0;
-            }
-            counter += 1;
-            total_time += diff;
 
             start = hpet.as_ref().unwrap().get_counter();
         }
