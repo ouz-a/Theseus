@@ -286,8 +286,8 @@ impl Add<Rect> for ScreenPos {
 impl Sub<Rect> for ScreenPos {
     type Output = Self;
 
-    fn sub(self, other: Rect) -> Self{
-        Self{
+    fn sub(self, other: Rect) -> Self {
+        Self {
             x: self.x - other.x as i32,
             y: self.y - other.y as i32,
         }
@@ -684,7 +684,7 @@ impl WindowManager {
         self.draw_mouse();
     }
 
-    fn next_mouse_pos(&self, screen_pos: ScreenPos) -> ScreenPos{
+    fn next_mouse_pos(&self, screen_pos: ScreenPos) -> ScreenPos {
         let mut new_pos = screen_pos + self.mouse;
 
         // handle left
@@ -775,9 +775,6 @@ impl WindowManager {
                     }
 
                     window.upgrade().unwrap().lock().set_screen_pos(&new_pos);
-                    log::info!("mouse pos is {:?}",self.mouse);
-                    let window_rect = window.upgrade().unwrap().lock().rect;
-                    log::info!("window rect is {:?}",&window_rect);
                 }
             }
         // FIXME: Resizing is broken if windows are on top of each other
