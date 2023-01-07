@@ -11,8 +11,9 @@ extern crate scheduler;
 extern crate spin;
 extern crate task;
 use core::marker::PhantomData;
-use core::ops::Add;
+use core::ops::{Add, Sub};
 
+use alloc::borrow::ToOwned;
 use alloc::format;
 use alloc::sync::{Arc, Weak};
 use log::{debug, info};
@@ -244,6 +245,7 @@ impl RelativePos {
 }
 
 /// Position that is relative to the screen
+#[derive(Debug,Clone,Copy)]
 pub struct ScreenPos {
     pub x: i32,
     pub y: i32,
@@ -266,6 +268,17 @@ impl Add for ScreenPos {
         Self {
             x: self.x + other.x,
             y: self.y + other.y,
+        }
+    }
+}
+
+impl Sub for ScreenPos{
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self{
+        Self {
+            x: self.x - other.x,
+            y: self.y - other.y
         }
     }
 }
@@ -298,6 +311,11 @@ impl Rect {
             y,
         }
     }
+
+    pub fn to_screen_pos(&self) -> ScreenPos {
+        ScreenPos{x:self.x as i32, y: self.y as i32}
+    }
+
 
     fn x_plus_width(&self) -> isize {
         self.x + self.width as isize
@@ -592,6 +610,7 @@ pub struct WindowManager {
     v_framebuffer: VirtualFrameBuffer,
     p_framebuffer: PhysicalFrameBuffer,
     pub mouse: Rect,
+    prev_mouse_pos: ScreenPos,
     mouse_holding: Holding,
 }
 
@@ -609,6 +628,7 @@ impl WindowManager {
             v_framebuffer,
             p_framebuffer,
             mouse,
+            prev_mouse_pos: mouse.to_screen_pos(),
             mouse_holding: Holding::Nothing,
         };
         WINDOW_MANAGER.call_once(|| Mutex::new(window_manager));
@@ -665,9 +685,9 @@ impl WindowManager {
         self.draw_mouse();
     }
 
-    // TODO: Remove magic numbers
-    fn update_mouse_position(&mut self, screen_pos: ScreenPos) {
-        let mut new_pos = screen_pos + self.mouse;
+
+    fn calculate_next_mouse_pos(&self,curr_pos: ScreenPos, next_pos: ScreenPos) -> ScreenPos {
+        let mut new_pos = next_pos + curr_pos;
 
         // handle left
         new_pos.x = core::cmp::max(new_pos.x, 0);
@@ -678,6 +698,15 @@ impl WindowManager {
         new_pos.y = core::cmp::max(new_pos.y, 0);
         // handle bottom
         new_pos.y = core::cmp::min(new_pos.y, self.v_framebuffer.height as i32 - 3);
+
+        new_pos
+    }
+
+
+    // TODO: Remove magic numbers
+    fn update_mouse_position(&mut self, screen_pos: ScreenPos) {
+        self.prev_mouse_pos = self.mouse.to_screen_pos();
+        let new_pos = self.calculate_next_mouse_pos(self.mouse.to_screen_pos(),screen_pos);
 
         self.set_mouse_pos(&new_pos);
     }
@@ -721,15 +750,20 @@ impl WindowManager {
                     }
                     // If couldn't hold onto anything we must have hold onto background
                     if self.mouse_holding.nothing() {
-                        self.mouse_holding = Holding::Background;
+                        self.mouse_holding = Holding::Background
                     }
                 }
-                // TODO: Fix the bug that allows you to move the window while mouse position is still
                 Holding::Window(i) => {
+                    // These calculations are required because we do want finer control
+                    // over a window's movement.
+                    let prev_mouse_pos = self.prev_mouse_pos;
+                    let next_mouse_pos = self.calculate_next_mouse_pos(prev_mouse_pos,screen_pos);
                     let window = &mut self.windows[i];
                     let window_rect = window.upgrade().unwrap().lock().rect;
-                    let mut new_pos = screen_pos + window_rect;
+                    let diff = next_mouse_pos - prev_mouse_pos;
+                    let mut new_pos = diff + window_rect.to_screen_pos();
 
+                    
                     //handle left
                     if (new_pos.x + (window_rect.width as i32 - 20)) < 0 {
                         new_pos.x = -(window_rect.width as i32 - 20);
