@@ -15,6 +15,7 @@ use alloc::format;
 use alloc::sync::Arc;
 use core::marker::PhantomData;
 use core::ops::{Add, Sub};
+use core::slice::IterMut;
 use log::{debug, info};
 use spin::{Mutex, MutexGuard, Once};
 
@@ -71,44 +72,53 @@ impl App {
         let mut window = self.window.lock();
         {
             window.draw_rectangle(DEFAULT_WINDOW_COLOR)?;
-            window.display_window_title(DEFAULT_TEXT_COLOR, DEFAULT_BORDER_COLOR);
+            //window.display_window_title(DEFAULT_TEXT_COLOR, DEFAULT_BORDER_COLOR);
             print_string(
                 &mut window,
-                self.text.width,
-                self.text.height,
                 &self.text.pos,
                 &self.text.text,
                 self.text.fg_color,
                 self.text.bg_color,
-                self.text.next_col,
-                self.text.next_line,
             );
         }
         Ok(())
     }
 }
 
+/// Prints a line of string from the start of the Window
+///  
+/// *Prints from left -> right*
+///
+/// * `window` - Window we are printing to.
+/// * `position` - This indicates where line will be.
+/// * `slice` - Text we are printing
+/// * `fg_color` - Foreground color of the text
+/// * `bg_color` - Background color of the text
 pub fn print_string(
     window: &mut Window,
-    width: usize,
-    height: usize,
-    pos: &RelativePos,
+    position: &RelativePos,
     slice: &str,
     fg_color: Color,
     bg_color: Color,
-    column: usize,
-    line: usize,
 ) {
     let slice = slice.as_bytes();
-    let start_x = pos.x + (column as u32 * CHARACTER_WIDTH as u32);
-    let start_y = pos.y + (line as u32 * CHARACTER_HEIGHT as u32);
+    let start_y = position.y;
 
     let mut x_index = 0;
     let mut row_controller = 0;
     let mut char_index = 0;
     let mut char_color_on_x_axis = x_index;
+
+    let window_width = window.width();
+    let mut row_of_pixels = FramebufferRowChunks::get_a_row(
+        &mut window.frame_buffer.buffer,
+        window.rect,
+        window_width,
+        start_y as usize,
+    )
+    .unwrap();
+
     loop {
-        let x = start_x + x_index as u32;
         let y = start_y + row_controller as u32;
         if x_index % CHARACTER_WIDTH == 0 {
             char_color_on_x_axis = 0;
@@ -126,13 +136,14 @@ pub fn print_string(
             char_color_on_x_axis += 1;
             bg_color
         };
-        window.draw_unchecked(&RelativePos::new(x, y), color);
+
+        // Altough bit ugly, this works quite well with our current way of rendering fonts
+        if let Some(pixel) = row_of_pixels.next() {
+            *pixel = color;
+        }
 
         x_index += 1;
-        if x_index == CHARACTER_WIDTH
-            || x_index % CHARACTER_WIDTH == 0
-            || start_x + x_index as u32 == width as u32
-        {
+        if x_index == CHARACTER_WIDTH || x_index % CHARACTER_WIDTH == 0 {
             if slice.len() >= 1 && char_index < slice.len() - 1 {
                 char_index += 1;
             }
@@ -140,14 +151,19 @@ pub fn print_string(
             if x_index >= CHARACTER_WIDTH * slice.len()
                 && x_index % (CHARACTER_WIDTH * slice.len()) == 0
             {
+                row_of_pixels = FramebufferRowChunks::get_a_row(
+                    &mut window.frame_buffer.buffer,
+                    window.rect,
+                    window_width,
+                    y as usize,
+                )
+                .unwrap();
                 row_controller += 1;
                 char_index = 0;
                 x_index = 0;
             }
 
-            if row_controller == CHARACTER_HEIGHT
-                || start_y + row_controller as u32 == height as u32
-            {
+            if row_controller == CHARACTER_HEIGHT {
                 break;
             }
         }
@@ -518,7 +534,7 @@ impl<'a> Iterator for MouseImageRowIterator<'a> {
     }
 }
 
-struct FramebufferRowChunks<'a, T: 'a> {
+pub struct FramebufferRowChunks<'a, T: 'a> {
     fb: *mut [T],
     rect: Rect,
     stride: usize,
@@ -544,6 +560,36 @@ impl<'a, T: 'a> FramebufferRowChunks<'a, T> {
                 current_column,
                 _marker: PhantomData,
             })
+        } else {
+            None
+        }
+    }
+
+    pub fn get_a_row(
+        slice: &'a mut [T],
+        rect: Rect,
+        stride: usize,
+        row: usize,
+    ) -> Option<IterMut<T>> {
+        if rect.width <= stride {
+            let mut rect = rect;
+            rect.y = row as isize;
+            rect.height = 1;
+            let current_column = rect.y as usize;
+            let row_index_beg = stride * current_column;
+            let row_index_end = (stride * current_column) + rect.width as usize;
+            let mut f = Some(Self {
+                fb: slice,
+                rect,
+                stride,
+                row_index_beg,
+                row_index_end,
+                current_column,
+                _marker: PhantomData,
+            })
+            .unwrap();
+            let once = f.next().unwrap().iter_mut();
+            Some(once)
         } else {
             None
         }
@@ -586,6 +632,7 @@ pub fn main(_args: Vec<String>) -> Result<isize, &'static str> {
 
     let _task_ref = match spawn::new_task_builder(port_loop, (mouse_consumer, key_consumer))
         .name("port_loop".to_string())
+        .pin_on_core(0)
         .spawn()
     {
         Ok(task_ref) => task_ref,
@@ -860,19 +907,8 @@ impl Window {
     pub fn display_window_title(&mut self, fg_color: Color, bg_color: Color) {
         if let Some(title) = self.title.clone() {
             let slice = title.as_str();
-            let border = self.title_border();
             let title_pos = self.title_pos(&slice.len());
-            print_string(
-                self,
-                border.width,
-                border.height,
-                &title_pos,
-                slice,
-                fg_color,
-                bg_color,
-                0,
-                0,
-            );
+            print_string(self, &title_pos, slice, fg_color, bg_color);
         }
     }
     pub fn width(&self) -> usize {
@@ -971,17 +1007,6 @@ impl Window {
         }
     }
 
-    // TODO: look into this
-    fn draw_unchecked(&mut self, relative_pos: &RelativePos, col: Color) {
-        let x = relative_pos.x;
-        let y = relative_pos.y;
-        unsafe {
-            let index = (self.frame_buffer.width * y as usize) + x as usize;
-            let pixel = self.frame_buffer.buffer.get_unchecked_mut(index);
-            *pixel = col;
-        }
-    }
-
     fn should_resize_framebuffer(&mut self) -> Result<(), &'static str> {
         if self.resized {
             self.resize_framebuffer()?;
@@ -1042,17 +1067,17 @@ fn port_loop(
     let window_2 = window_manager
         .lock()
         .new_window(&Rect::new(400, 400, 500, 20), Some(format!("Basic")))?;
+    let drawable_area = window_2.lock().drawable_area();
     let text = TextDisplayInfo {
-        width: 400,
-        height: 400,
-        pos: RelativePos::new(0, 0),
-        next_col: 1,
-        next_line: 1,
-        text: "Hello World".to_string(),
+        width: drawable_area.width,
+        height: drawable_area.height,
+        pos: RelativePos::new(drawable_area.x as u32, drawable_area.y as u32),
+        next_col: 0,
+        next_line: 0,
+        text: "Helloaaaaaaaaaaaa World".to_string(),
         fg_color: DEFAULT_TEXT_COLOR,
-        bg_color: DEFAULT_BORDER_COLOR,
+        bg_color: DEFAULT_WINDOW_COLOR,
     };
-    // let window_3 = window_manager.lock().new_window(&Rect::new(100, 100, 0, 0), Some(format!("window 3")))?;
     let mut app = App::new(window_2, text);
     let hpet = get_hpet();
     let mut start = hpet
