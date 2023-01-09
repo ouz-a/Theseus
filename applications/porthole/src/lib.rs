@@ -308,7 +308,7 @@ impl Rect {
         }
     }
 
-    pub fn set_position(&mut self,x:u32,y:u32){
+    pub fn set_position(&mut self, x: u32, y: u32) {
         self.x = x as isize;
         self.y = y as isize;
     }
@@ -557,7 +557,7 @@ impl<'a> Iterator for MouseImageRowIterator<'a> {
 
 /// From given mutable `Framebuffer` slice and `Rect` returns
 /// rows of slices.
-/// 
+///
 /// Think `Framebuffer` as a big cake and `Rect` as a smaller cake within the `Framebuffer`
 /// this returns row of mutable slices from that smaller cake.
 pub struct FramebufferRowChunks<'a, T: 'a> {
@@ -599,7 +599,7 @@ impl<'a, T: 'a> FramebufferRowChunks<'a, T> {
 
     /// Returns a single `IterMut<T>` from specified `row` of the framebuffer
     ///  
-    /// * `row` - Specifies which row will be returned from this function 
+    /// * `row` - Specifies which row will be returned from this function
     pub fn get_exact_row(
         slice: &'a mut [T],
         rect: Rect,
@@ -609,7 +609,8 @@ impl<'a, T: 'a> FramebufferRowChunks<'a, T> {
         let mut rect = rect;
         rect.y = row as isize;
         rect.height = 1;
-        let mut rows = FramebufferRowChunks::new(slice,rect,stride).ok_or("Couldn't create `FramebufferRowChunks` from given rect")?;
+        let mut rows = FramebufferRowChunks::new(slice, rect, stride)
+            .ok_or("Couldn't create `FramebufferRowChunks` from given rect")?;
         let row_iterator = rows.next().ok_or("Error created empty row")?.iter_mut();
         Ok(row_iterator)
     }
@@ -709,7 +710,7 @@ impl WindowManager {
     fn init() -> Result<(), &'static str> {
         let p_framebuffer = PhysicalFrameBuffer::init_front_buffer()?;
         let v_framebuffer = VirtualFrameBuffer::new(p_framebuffer.width, p_framebuffer.height)?;
-        // FIXME: Don't use magic numbers, 
+        // FIXME: Don't use magic numbers,
         let mouse = Rect::new(11, 18, 200, 200);
 
         let window_manager = WindowManager {
@@ -749,7 +750,7 @@ impl WindowManager {
         for order in self.window_rendering_order.iter() {
             self.v_framebuffer
                 .copy_window_into_main_vbuffer(&mut self.windows[*order].lock());
-                // TODO: Stop indexing ^ here
+            // TODO: Stop indexing ^ here
         }
         for window in self.windows.iter() {
             window.lock().blank();
@@ -785,18 +786,28 @@ impl WindowManager {
         self.draw_mouse();
     }
 
-    fn calculate_next_mouse_pos(&self, current_position: ScreenPos, next_position: ScreenPos) -> ScreenPos {
+    fn calculate_next_mouse_pos(
+        &self,
+        current_position: ScreenPos,
+        next_position: ScreenPos,
+    ) -> ScreenPos {
         let mut new_pos = next_position + current_position;
 
         // handle left
         new_pos.x = core::cmp::max(new_pos.x, 0);
         // handle right
-        new_pos.x = core::cmp::min(new_pos.x, self.v_framebuffer.width as i32 - MOUSE_VISIBLE_GAP);
+        new_pos.x = core::cmp::min(
+            new_pos.x,
+            self.v_framebuffer.width as i32 - MOUSE_VISIBLE_GAP,
+        );
 
         // handle top
         new_pos.y = core::cmp::max(new_pos.y, 0);
         // handle bottom
-        new_pos.y = core::cmp::min(new_pos.y, self.v_framebuffer.height as i32 - MOUSE_VISIBLE_GAP);
+        new_pos.y = core::cmp::min(
+            new_pos.y,
+            self.v_framebuffer.height as i32 - MOUSE_VISIBLE_GAP,
+        );
 
         new_pos
     }
@@ -813,14 +824,16 @@ impl WindowManager {
             match self.mouse_holding {
                 Holding::Background => {}
                 Holding::Nothing => {
-                    let rendering_order= self.window_rendering_order.clone();
-                    for (window_index, position_in_iter) in rendering_order.iter().enumerate().rev() {
+                    let rendering_order = self.window_rendering_order.clone();
+                    for (window_index, position_in_iter) in rendering_order.iter().enumerate().rev()
+                    {
                         let window = &mut self.windows[window_index];
                         if window.lock().rect.detect_collision(&self.mouse) {
                             if window_index != self.active_window_index {
                                 // FIXME: This is half-broken, doesn't handle multiple windows correctly
                                 let last_one = self.window_rendering_order.len() - 1;
-                                self.window_rendering_order.swap(last_one, *position_in_iter);
+                                self.window_rendering_order
+                                    .swap(last_one, *position_in_iter);
                             }
                             if window
                                 .lock()
@@ -843,12 +856,12 @@ impl WindowManager {
                     // These calculations are required because we do want finer control
                     // over a window's movement.
                     let prev_mouse_pos = self.prev_mouse_pos;
-                    let next_mouse_pos = self.calculate_next_mouse_pos(prev_mouse_pos,screen_position);
+                    let next_mouse_pos =
+                        self.calculate_next_mouse_pos(prev_mouse_pos, screen_position);
                     let window = &mut self.windows[i];
                     let window_rect = window.lock().rect;
                     let diff = next_mouse_pos - prev_mouse_pos;
                     let mut new_pos = diff + window_rect.to_screen_pos();
-
 
                     //handle left
                     if (new_pos.x + (window_rect.width as i32 - WINDOW_VISIBLE_GAP as i32)) < 0 {
@@ -883,7 +896,9 @@ impl WindowManager {
                     self.mouse.x,
                     self.mouse.y,
                 )) {
-                    window.lock().resize_window(screen_position.x, screen_position.y);
+                    window
+                        .lock()
+                        .resize_window(screen_position.x, screen_position.y);
                     window.lock().reset_drawable_area();
                     window.lock().reset_title_pos_and_border();
                     window.lock().resized = true;
@@ -1075,7 +1090,6 @@ impl Window {
         bounding_box.y = 0;
         bounding_box
     }
-
 }
 
 fn port_loop(
