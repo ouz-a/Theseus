@@ -79,7 +79,7 @@ impl App {
                 &self.text.text,
                 self.text.fg_color,
                 self.text.bg_color,
-            );
+            )?;
         }
         Ok(())
     }
@@ -100,7 +100,7 @@ pub fn print_string(
     slice: &str,
     fg_color: Color,
     bg_color: Color,
-) {
+) -> Result<(), &'static str> {
     let slice = slice.as_bytes();
     let start_y = position.y;
 
@@ -115,8 +115,7 @@ pub fn print_string(
         window.rect,
         window_width,
         start_y as usize,
-    )
-    .unwrap();
+    )?;
 
     loop {
         let y = start_y + row_controller as u32;
@@ -156,8 +155,7 @@ pub fn print_string(
                     window.rect,
                     window_width,
                     y as usize,
-                )
-                .unwrap();
+                )?;
                 row_controller += 1;
                 char_index = 0;
                 x_index = 0;
@@ -168,6 +166,7 @@ pub fn print_string(
             }
         }
     }
+    Ok(())
 }
 fn get_bit(char_font: u8, i: usize) -> u8 {
     char_font & (0x80 >> i)
@@ -570,7 +569,7 @@ impl<'a, T: 'a> FramebufferRowChunks<'a, T> {
         rect: Rect,
         stride: usize,
         row: usize,
-    ) -> Option<IterMut<T>> {
+    ) -> Result<IterMut<T>, &'static str> {
         if rect.width <= stride {
             let mut rect = rect;
             rect.y = row as isize;
@@ -578,7 +577,7 @@ impl<'a, T: 'a> FramebufferRowChunks<'a, T> {
             let current_column = rect.y as usize;
             let row_index_beg = stride * current_column;
             let row_index_end = (stride * current_column) + rect.width as usize;
-            let mut f = Some(Self {
+            let mut row = Some(Self {
                 fb: slice,
                 rect,
                 stride,
@@ -587,11 +586,11 @@ impl<'a, T: 'a> FramebufferRowChunks<'a, T> {
                 current_column,
                 _marker: PhantomData,
             })
-            .unwrap();
-            let once = f.next().unwrap().iter_mut();
-            Some(once)
+            .ok_or("Unable to get a row of pixels from given row")?;
+            let row_iterator = row.next().ok_or("Error created empty row")?.iter_mut();
+            Ok(row_iterator)
         } else {
-            None
+            Err("Unable to create row if given width is bigger than stride")
         }
     }
 
@@ -904,12 +903,17 @@ impl Window {
         }
     }
 
-    pub fn display_window_title(&mut self, fg_color: Color, bg_color: Color) {
+    pub fn display_window_title(
+        &mut self,
+        fg_color: Color,
+        bg_color: Color,
+    ) -> Result<(), &'static str> {
         if let Some(title) = self.title.clone() {
             let slice = title.as_str();
             let title_pos = self.title_pos(&slice.len());
-            print_string(self, &title_pos, slice, fg_color, bg_color);
+            print_string(self, &title_pos, slice, fg_color, bg_color)?;
         }
+        Ok(())
     }
     pub fn width(&self) -> usize {
         self.rect.width
