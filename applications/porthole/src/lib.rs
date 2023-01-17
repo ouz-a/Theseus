@@ -190,6 +190,7 @@ impl App {
         let mut window = self.window.lock();
 
         window.draw_rectangle(DEFAULT_WINDOW_COLOR)?;
+
         window.display_window_title(DEFAULT_TEXT_COLOR, DEFAULT_BORDER_COLOR)?;
         print_string(
             &mut window,
@@ -198,6 +199,7 @@ impl App {
             self.text.fg_color,
             self.text.bg_color,
         )?;
+
         Ok(())
     }
 }
@@ -657,10 +659,12 @@ impl<'a> Iterator for MouseImageRowIterator<'a> {
         if self.current_row < self.bounding_box.height - 1 {
             let mut row = Vec::new();
             while self.current_column < self.bounding_box.width {
-                let color = unsafe {
-                    self.mouse_image.get_unchecked(self.current_column)[self.current_row]
-                };
-                row.push(color);
+                let color = self
+                    .mouse_image
+                    .get(self.current_column)?
+                    .get(self.current_row)?;
+
+                row.push(*color);
                 self.current_column += 1;
                 if self.current_column == self.bounding_box.width - 1 {
                     self.current_column = 0;
@@ -682,7 +686,7 @@ impl<'a> Iterator for MouseImageRowIterator<'a> {
 /// this returns row of mutable slices from that smaller cake.
 pub struct FramebufferRowChunks<'a, T: 'a> {
     /// Framebuffer we used to get the `rows` from
-    fb: *mut [T],
+    fb: &'a mut [T],
     /// This let's us decide where and how big of a row we want to get
     rect: Rect,
     /// Amount of pixels in a line of `Framebuffer`
@@ -735,11 +739,6 @@ impl<'a, T: 'a> FramebufferRowChunks<'a, T> {
         Ok(row_iterator)
     }
 
-    fn calculate_next_row(&mut self) {
-        self.row_index_beg = (self.stride * self.current_column) + self.rect.x as usize;
-        self.row_index_end =
-            (self.stride * self.current_column) + self.rect.x_plus_width() as usize;
-    }
 }
 
 impl<'a, T> Iterator for FramebufferRowChunks<'a, T> {
@@ -747,14 +746,25 @@ impl<'a, T> Iterator for FramebufferRowChunks<'a, T> {
 
     fn next(&mut self) -> Option<&'a mut [T]> {
         if self.current_column < self.rect.y_plus_height() as usize {
-            let chunk = unsafe {
-                self.fb
-                    .get_unchecked_mut(self.row_index_beg..self.row_index_end)
-            };
+            let slice = core::mem::replace(&mut self.fb, &mut []);
+
             self.current_column += 1;
-            self.calculate_next_row();
-            let chunk = { unsafe { &mut *chunk } };
-            Some(chunk)
+            if slice.len() < self.row_index_end {
+                return None;
+            }
+
+            let (ret_value, rest_of_slice) = slice.split_at_mut(self.row_index_end);
+
+            self.fb = rest_of_slice;
+            if let Some(chunk) = ret_value.get_mut(self.row_index_beg..self.row_index_end) {
+                let gap = self.stride - self.row_index_end;
+                if self.stride == 1024 {}
+                self.row_index_beg = self.row_index_beg + gap;
+                self.row_index_end = self.row_index_end + gap;
+                return Some(chunk);
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -1212,6 +1222,7 @@ fn port_loop(
     (key_consumer, mouse_consumer): (Queue<Event>, Queue<Event>),
 ) -> Result<(), &'static str> {
     let window_manager = WINDOW_MANAGER.get().ok_or("Unable to get WindowManager")?;
+
     let window_2 = window_manager
         .lock()
         .new_window(&Rect::new(400, 400, 500, 20), Some(format!("Basic")))?;
@@ -1227,6 +1238,7 @@ fn port_loop(
         bg_color: DEFAULT_WINDOW_COLOR,
     };
     let mut app = App::new(window_2, text);
+
     let window_3 = window_manager
         .lock()
         .new_window(&Rect::new(400, 100, 0, 0), Some(format!("Fps Counter")))?;
@@ -1282,10 +1294,12 @@ fn port_loop(
                 _ => (),
             }
         }
-        app.draw()?;
         fps_counter.run()?;
+        app.draw()?;
         window_manager.lock().update();
         window_manager.lock().render();
+        // app.draw()?;
+        //fps_counter.run()?;
     }
     Ok(())
 }
