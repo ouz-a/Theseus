@@ -746,19 +746,22 @@ impl<'a, T> Iterator for FramebufferRowChunks<'a, T> {
 
     fn next(&mut self) -> Option<&'a mut [T]> {
         if self.current_column < self.rect.y_plus_height() as usize {
+            // To not fight borrow checker we do this little trick here
             let slice = core::mem::replace(&mut self.fb, &mut []);
 
-            self.current_column += 1;
             if slice.len() < self.row_index_end {
                 return None;
             }
+            self.current_column += 1;
 
-            let (ret_value, rest_of_slice) = slice.split_at_mut(self.row_index_end);
+            let (row, rest_of_slice) = slice.split_at_mut(self.row_index_end);
 
+            // We want to keep rest of the slice
             self.fb = rest_of_slice;
-            if let Some(chunk) = ret_value.get_mut(self.row_index_beg..self.row_index_end) {
+            if let Some(chunk) = row.get_mut(self.row_index_beg..self.row_index_end) {
+                // Because we are taking part of a slice we need this gap to be added to
+                // `row_index_beg` and `row_index_end` so we can correctly index the framebuffer slice
                 let gap = self.stride - self.row_index_end;
-                if self.stride == 1024 {}
                 self.row_index_beg = self.row_index_beg + gap;
                 self.row_index_end = self.row_index_end + gap;
                 return Some(chunk);
