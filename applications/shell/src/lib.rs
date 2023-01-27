@@ -1335,12 +1335,11 @@ impl Shell {
                 } else { // currently the key event queue is taken by an application
                     break;
                 }
-            }
-            if need_refresh {
+            
                 // update if there are inputs
                 self.terminal.lock().refresh_display()?;
-            } else {
                 scheduler::schedule(); // yield the CPU if nothing to do
+            
             }
         }
     }

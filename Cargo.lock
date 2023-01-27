@@ -2392,6 +2392,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "ouz_bar"
+version = "0.1.0"
+dependencies = [
+ "app_io",
+ "async_channel",
+ "color",
+ "cpu",
+ "framebuffer",
+ "framebuffer_drawer",
+ "getopts",
+ "hpet",
+ "log",
+ "rendezvous",
+ "runqueue",
+ "scheduler",
+ "shapes",
+ "spawn",
+ "spin 0.9.4",
+ "task",
+ "unified_channel",
+ "window",
+]
+
+[[package]]
 name = "owned_borrowed_trait"
 version = "0.1.0"
 

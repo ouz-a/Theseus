@@ -657,6 +657,8 @@ pub fn init() -> Result<(Queue<Event>, Queue<Event>), &'static str> {
 
     spawn::new_task_builder(window_manager_loop, (key_consumer, mouse_consumer))
         .name("window_manager_loop".to_string())
+         // If you remove this line things run fine even when two graphical applications are run at same time
+        .pin_on_core(0)
         .spawn()?;
 
     Ok((key_producer, mouse_producer))
