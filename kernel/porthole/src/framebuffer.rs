@@ -158,9 +158,9 @@ impl PhysicalFrameBuffer {
 /// To help you understand this structure consider this example:
 /// Think `VirtualFrameBuffer` as a big cake and `Rect` as a smaller cake within the `VirtualFrameBuffer`
 /// this returns row of mutable slices from that smaller cake.
-pub struct FramebufferRowChunks<'a> {
+pub struct FramebufferRowChunks<'a,'b> {
     /// Framebuffer we used to get the `rows` from
-    framebuffer: &'a mut [u32],
+    framebuffer: &'a mut VirtualFrameBuffer,
     /// A `Rect` that specifies the dimensions of the row to be extracted from the framebuffer;
     rect: Rect,
     /// Number of pixels in a line of `Framebuffer`
@@ -171,9 +171,10 @@ pub struct FramebufferRowChunks<'a> {
     end_of_row: usize,
     /// The index of the current row being extracted from the framebuffer
     current_column: usize,
+    marker: PhantomData<&'b mut [u32]>
 }
 
-impl<'a> FramebufferRowChunks<'a> {
+impl<'a,'b> FramebufferRowChunks<'a,'b> {
     /// Creates a new `FramebufferRowChunks` from given `rect` and `stride`;
     /// if given `rect.width` is bigger than the given `stride` it will return a row big as the stride.
     pub fn new(framebuffer: &'a mut VirtualFrameBuffer, rect: &mut Rect, stride: usize) -> Self {
@@ -182,45 +183,28 @@ impl<'a> FramebufferRowChunks<'a> {
         let start_of_row = (stride * current_column) + rect.x as usize;
         let end_of_row = (stride * current_column) + rect.x_plus_width() as usize;
         Self {
-            framebuffer: &mut framebuffer.buffer,
+            framebuffer: framebuffer,
             rect: *rect,
             stride,
             start_of_row,
             end_of_row,
             current_column,
+            marker: PhantomData,
         }
     }
 
 }
 
-impl<'a> Iterator for FramebufferRowChunks<'a> {
-    type Item = &'a mut [u32];
+impl<'a,'b> Iterator for FramebufferRowChunks<'a,'b> where 'a: 'b {
+    type Item = &'b mut [u32];
 
-    fn next(&mut self) -> Option<&'a mut [u32]> {
+    fn next(&mut self) -> Option<&'b mut [u32]> {
         if self.current_column < self.rect.y_plus_height() as usize {
-            // To not fight borrow checker we do this little trick here
-            let slice = core::mem::replace(&mut self.framebuffer, &mut []);
-
-            if slice.len() < self.end_of_row {
-                return None;
-            }
-            self.current_column += 1;
-
-            let (row, rest_of_slice) = slice.split_at_mut(self.end_of_row);
-
-            // We want to keep rest of the slice
-            self.framebuffer = rest_of_slice;
-            if let Some(chunk) = row.get_mut(self.start_of_row..self.end_of_row) {
-                // Because we are taking part of a slice we need this gap to be added to
-                // `start_of_row` and `end_of_row` so we can correctly index the framebuffer slice
-                let gap = self.stride - self.end_of_row;
-                self.start_of_row = self.start_of_row + gap;
-                self.end_of_row = self.end_of_row + gap;
-                return Some(chunk);
-            } else {
-                None
-            }
-        } else {
+            // I explicitly removed most of the stuff to show lifetime issues arises even when 
+            // we do the simplest operation possible.
+            // ---------------------
+            self.framebuffer.buffer.get_mut(0..1)
+        }else{
             None
         }
     }
